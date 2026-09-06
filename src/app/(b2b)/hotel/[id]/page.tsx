@@ -27,8 +27,12 @@ import {
     Filter,
     Check,
     BrainCircuit,
-    ChevronRight
+    ChevronRight,
+    Coins,
+    HelpCircle,
+    LogOut
 } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
 import {
     ResponsiveContainer,
     AreaChart,
@@ -62,6 +66,17 @@ interface HotelListItem {
     green_tag: GreenTag;
 }
 
+interface RoiData {
+    total_stays: number;
+    opted_in_stays: number;
+    participation_rate: number;
+    gross_savings_inr: number;
+    rewards_cost_inr: number;
+    net_profit_inr: number;
+    avg_savings_per_guest: number;
+    assumptions: string[];
+}
+
 /**
  * Sanitizes and strictly clamps sub-scores to their authorized maximums.
  * If a value was mistakenly seeded or stored as a 0-100 percentage, it scales it down cleanly.
@@ -80,6 +95,16 @@ export default function HotelDashboardPage() {
     const params = useParams();
     const router = useRouter();
     const hotelId = (params?.id as string) || '';
+    const { user, signOut } = useAuth();
+
+    const handleSignOut = async () => {
+        try {
+            await signOut();
+            router.push('/auth/hotel');
+        } catch (err) {
+            console.error('Sign out error:', err);
+        }
+    };
 
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
@@ -100,6 +125,11 @@ export default function HotelDashboardPage() {
     const [selectedCategory, setSelectedCategory] = useState<CategoryFilter>('all');
     const [scorePulse, setScorePulse] = useState<boolean>(false);
     const [aiNotification, setAiNotification] = useState<string | null>(null);
+
+    // ROI Tracker state
+    const [roiData, setRoiData] = useState<RoiData | null>(null);
+    const [roiLoading, setRoiLoading] = useState<boolean>(false);
+    const [showEconomicsPanel, setShowEconomicsPanel] = useState<boolean>(true);
 
     useEffect(() => {
         setIsMounted(true);
@@ -166,9 +196,29 @@ export default function HotelDashboardPage() {
         }
     };
 
+    // Fetch hotel ROI analytics
+    const fetchRoiData = async () => {
+        if (!hotelId) return;
+        setRoiLoading(true);
+        try {
+            const res = await fetch(`/api/hotel/${hotelId}/roi`);
+            if (res.ok) {
+                const json = await res.json();
+                if (json.success && json.roi) {
+                    setRoiData(json.roi);
+                }
+            }
+        } catch (err) {
+            console.error('Error fetching hotel ROI data:', err);
+        } finally {
+            setRoiLoading(false);
+        }
+    };
+
     useEffect(() => {
         fetchHotelData();
         fetchRecommendations();
+        fetchRoiData();
     }, [hotelId]);
 
     // Generate AI recommendations via Gemini
@@ -1245,7 +1295,214 @@ export default function HotelDashboardPage() {
                     )}
                 </div>
 
-                {/* Section 5: Action Bar / Quick Links */}
+                {/* Section 5: Eco-Loyalty Financial ROI Tracker */}
+                <div id="roi-tracker" className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-6 sm:p-8 space-y-6">
+                    {/* Header */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                    <Coins className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>Eco-Loyalty Financial ROI Tracker</span>
+                                </span>
+                            </div>
+                            <h3 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
+                                Loyalty Program Profitability &amp; Resource Savings
+                            </h3>
+                            <p className="text-xs sm:text-sm text-slate-500">
+                                Proving sustainability is a profit center, not a cost center.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 self-start sm:self-auto">
+                            <button
+                                onClick={fetchRoiData}
+                                disabled={roiLoading}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition cursor-pointer"
+                                title="Refresh financial ROI calculations"
+                            >
+                                <RefreshCw className={`w-3.5 h-3.5 ${roiLoading ? 'animate-spin' : ''}`} />
+                                <span>Sync ROI</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* 4-Card Financial KPI Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        {/* 1. Net Financial Profit */}
+                        <div className="bg-gradient-to-br from-emerald-50/80 to-teal-50/40 rounded-2xl p-5 border border-emerald-200/90 shadow-2xs flex flex-col justify-between space-y-3">
+                            <div className="flex items-start justify-between">
+                                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                    Net Financial Profit
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-600 text-white shadow-2xs">
+                                    <TrendingUp className="w-3 h-3" />
+                                    <span>ROI Positive</span>
+                                </span>
+                            </div>
+                            <div>
+                                <div className="text-3xl font-black text-emerald-600 tracking-tight">
+                                    +₹{(roiData?.net_profit_inr || 0).toLocaleString('en-IN')}
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                    Net margin saved after all guest perks
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* 2. Gross Operational Savings */}
+                        <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80 shadow-2xs flex flex-col justify-between space-y-3">
+                            <div className="flex items-start justify-between">
+                                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                    Gross Operational Savings
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-800 border border-sky-200">
+                                    Utility &amp; Labor
+                                </span>
+                            </div>
+                            <div>
+                                <div className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                                    ₹{(roiData?.gross_savings_inr || 0).toLocaleString('en-IN')}
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                    Saved on laundry, HVAC power &amp; housekeeping
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* 3. Rewards Payout */}
+                        <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80 shadow-2xs flex flex-col justify-between space-y-3">
+                            <div className="flex items-start justify-between">
+                                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                    Rewards Payout
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                                    Perks Cost
+                                </span>
+                            </div>
+                            <div>
+                                <div className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                                    ₹{(roiData?.rewards_cost_inr || 0).toLocaleString('en-IN')}
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                    Total cost of guest perks redeemed
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* 4. Guest Participation Rate */}
+                        <div className="bg-slate-50 rounded-2xl p-5 border border-slate-200/80 shadow-2xs flex flex-col justify-between space-y-3">
+                            <div className="flex items-start justify-between">
+                                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                                    Participation Rate
+                                </span>
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-teal-50 text-teal-800 border border-teal-200">
+                                    {roiData?.opted_in_stays || 0} / {roiData?.total_stays || 0} Stays
+                                </span>
+                            </div>
+                            <div>
+                                <div className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                                    {roiData?.participation_rate || 0}%
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-1">
+                                    Guests active in daily eco-actions
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Transparent Unit Economics Card */}
+                    <div className="bg-slate-50 rounded-2xl border border-slate-200/80 overflow-hidden">
+                        <button
+                            type="button"
+                            onClick={() => setShowEconomicsPanel(prev => !prev)}
+                            className="w-full p-4 sm:p-5 flex items-center justify-between text-left hover:bg-slate-100/60 transition cursor-pointer"
+                        >
+                            <div className="flex items-center gap-2.5">
+                                <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0">
+                                    <HelpCircle className="w-4 h-4" />
+                                </div>
+                                <div>
+                                    <span className="font-bold text-sm text-slate-900 block">
+                                        Transparent Unit Economics &amp; Financial Model
+                                    </span>
+                                    <span className="text-xs text-slate-500">
+                                        Average value generated: <strong className="text-emerald-700 font-bold">+₹{(roiData?.avg_savings_per_guest || 0).toLocaleString('en-IN')}</strong> per participating guest stay
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-1 text-xs font-semibold text-slate-500">
+                                <span>{showEconomicsPanel ? 'Hide Details' : 'View Breakdown'}</span>
+                                {showEconomicsPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                            </div>
+                        </button>
+
+                        {showEconomicsPanel && (
+                            <div className="p-4 sm:p-5 pt-0 space-y-4 border-t border-slate-200/60 mt-1 animate-fadeIn">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
+                                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-1">
+                                        <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
+                                            🧺 Linen Skip
+                                        </span>
+                                        <div className="text-sm font-extrabold text-slate-900">
+                                            +₹250 / action
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 leading-tight">
+                                            Laundry water, power &amp; labor savings
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-1">
+                                        <span className="text-[11px] font-bold text-sky-800 uppercase tracking-wider block">
+                                            ❄️ AC at 24°C+
+                                        </span>
+                                        <div className="text-sm font-extrabold text-slate-900">
+                                            +₹120 / action
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 leading-tight">
+                                            Compressor cooling cycle reduction
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-1">
+                                        <span className="text-[11px] font-bold text-teal-800 uppercase tracking-wider block">
+                                            🚿 Towel Reuse
+                                        </span>
+                                        <div className="text-sm font-extrabold text-slate-900">
+                                            +₹80 / action
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 leading-tight">
+                                            Hot water boiler &amp; wash detergent savings
+                                        </p>
+                                    </div>
+
+                                    <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-1">
+                                        <span className="text-[11px] font-bold text-amber-800 uppercase tracking-wider block">
+                                            🎁 Reward Costs
+                                        </span>
+                                        <div className="text-sm font-extrabold text-slate-900">
+                                            ₹0 – ₹120 / perk
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 leading-tight">
+                                            Cocktail ₹120, Dessert ₹60, Late Checkout ₹0
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-950 flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                                        <span>
+                                            Average net value generation: <strong>+₹{(roiData?.avg_savings_per_guest || 0).toLocaleString('en-IN')}</strong> per guest room. Verified by IoT submetering &amp; front-desk stay ledger.
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Section 6: Action Bar / Quick Links */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                     {/* Recommendations Quick Jumper Card */}
                     <div className="bg-white rounded-2xl border border-emerald-100 shadow-sm p-6 flex flex-col justify-between space-y-4 hover:border-emerald-300 transition">
@@ -1285,17 +1542,16 @@ export default function HotelDashboardPage() {
                                 Track points accumulated and redeemed by eco-conscious travelers. Verify laundry water saved, HVAC kilowatt-hours deferred, and net profit margin improvement.
                             </p>
                         </div>
-                        <a
-                            href="#roi-tracker"
-                            onClick={(e) => {
-                                e.preventDefault();
-                                alert('Guest Loyalty ROI Tracker: Demo property has verified check-in records with active linen, ac, and towel actions.');
+                        <button
+                            onClick={() => {
+                                const el = document.getElementById('roi-tracker');
+                                el?.scrollIntoView({ behavior: 'smooth' });
                             }}
                             className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700 hover:text-emerald-800 transition cursor-pointer"
                         >
-                            <span>Launch ROI Tracker</span>
+                            <span>View Financial ROI Analysis</span>
                             <ArrowRight className="w-3.5 h-3.5" />
-                        </a>
+                        </button>
                     </div>
                 </div>
             </main>

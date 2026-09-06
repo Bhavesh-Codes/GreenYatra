@@ -3,6 +3,7 @@
 import React, { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
+import { Compass } from 'lucide-react';
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || '';
 
@@ -73,38 +74,35 @@ export default function RouteMap({ origin, destination, geometry, className = ''
                 .addTo(map);
             destMarkerRef.current = destMarker;
 
-            // 3. Add GeoJSON LineString (use highway geometry if provided, otherwise fallback to straight line)
-            const routeCoords: [number, number][] =
-                currentGeometry && currentGeometry.length > 0
-                    ? currentGeometry
-                    : [originCoords, destCoords];
-
-            map.addSource('route-line-source', {
-                type: 'geojson',
-                data: {
-                    type: 'Feature',
-                    properties: {},
-                    geometry: {
-                        type: 'LineString',
-                        coordinates: routeCoords
+            // 3. Add GeoJSON LineString only if geometry is provided (highway contour mode)
+            if (currentGeometry && currentGeometry.length > 0) {
+                map.addSource('route-line-source', {
+                    type: 'geojson',
+                    data: {
+                        type: 'Feature',
+                        properties: {},
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: currentGeometry
+                        }
                     }
-                }
-            });
+                });
 
-            map.addLayer({
-                id: 'route-line',
-                type: 'line',
-                source: 'route-line-source',
-                layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round'
-                },
-                paint: {
-                    'line-color': '#10b981',
-                    'line-width': 4,
-                    'line-opacity': 0.85
-                }
-            });
+                map.addLayer({
+                    id: 'route-line',
+                    type: 'line',
+                    source: 'route-line-source',
+                    layout: {
+                        'line-join': 'round',
+                        'line-cap': 'round'
+                    },
+                    paint: {
+                        'line-color': '#10b981',
+                        'line-width': 4,
+                        'line-opacity': 0.85
+                    }
+                });
+            }
 
             // 4. Fit map bounds over all coordinates including highway geometry with padding
             const bounds = new mapboxgl.LngLatBounds(originCoords, destCoords);
@@ -115,8 +113,8 @@ export default function RouteMap({ origin, destination, geometry, className = ''
             }
 
             map.fitBounds(bounds, {
-                padding: 40,
-                maxZoom: 14,
+                padding: 60,
+                maxZoom: 13,
                 duration: 800
             });
         } else if (currentOrigin) {
@@ -126,7 +124,7 @@ export default function RouteMap({ origin, destination, geometry, className = ''
                 .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(currentOrigin.name))
                 .addTo(map);
             originMarkerRef.current = originMarker;
-            map.flyTo({ center: originCoords, zoom: 10 });
+            map.flyTo({ center: originCoords, zoom: 10, duration: 800 });
         } else if (currentDest) {
             const destCoords: [number, number] = [currentDest.lng, currentDest.lat];
             const destMarker = new mapboxgl.Marker({ color: '#3b82f6' })
@@ -134,9 +132,9 @@ export default function RouteMap({ origin, destination, geometry, className = ''
                 .setPopup(new mapboxgl.Popup({ offset: 25 }).setText(currentDest.name))
                 .addTo(map);
             destMarkerRef.current = destMarker;
-            map.flyTo({ center: destCoords, zoom: 10 });
+            map.flyTo({ center: destCoords, zoom: 10, duration: 800 });
         } else {
-            map.flyTo({ center: [78.9629, 20.5937], zoom: 4 });
+            map.flyTo({ center: [78.9629, 20.5937], zoom: 4.2, duration: 800 });
         }
     };
 
@@ -148,7 +146,7 @@ export default function RouteMap({ origin, destination, geometry, className = ''
             container: mapContainerRef.current,
             style: 'mapbox://styles/mapbox/light-v11',
             center: [78.9629, 20.5937], // Geographical center of India [lng, lat]
-            zoom: 4,
+            zoom: 4.2,
             attributionControl: false
         });
 
@@ -157,6 +155,7 @@ export default function RouteMap({ origin, destination, geometry, className = ''
         mapRef.current = map;
 
         map.on('load', () => {
+            map.resize();
             renderRouteAndMarkers();
         });
 
@@ -176,15 +175,32 @@ export default function RouteMap({ origin, destination, geometry, className = ''
     // Update map dynamically when origin, destination, or geometry props change
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || !map.isStyleLoaded()) return;
-        renderRouteAndMarkers();
+        if (!map) return;
+        if (map.isStyleLoaded()) {
+            renderRouteAndMarkers();
+        } else {
+            map.once('load', () => {
+                renderRouteAndMarkers();
+            });
+        }
     }, [origin, destination, geometry]);
 
     return (
         <div className={`relative w-full h-80 rounded-2xl overflow-hidden border border-slate-200 shadow-sm ${className}`}>
             <div ref={mapContainerRef} className="w-full h-full" />
+
+            {/* Empty / Initial State Overlay */}
+            {!origin && !destination && (
+                <div className="absolute inset-0 bg-slate-900/5 backdrop-blur-[1px] flex items-center justify-center p-4 pointer-events-none z-10">
+                    <div className="bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-2xl shadow-md border border-slate-200 text-xs font-semibold text-slate-700 flex items-center gap-2.5">
+                        <Compass className="w-4 h-4 text-emerald-600 animate-pulse shrink-0" />
+                        <span>Enter origin and destination above or select a popular route to preview.</span>
+                    </div>
+                </div>
+            )}
+
             {!process.env.NEXT_PUBLIC_MAPBOX_TOKEN && (
-                <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 text-center">
+                <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 text-center z-20">
                     <div className="bg-white rounded-xl p-4 text-xs text-slate-700 shadow-md max-w-xs">
                         Mapbox token not configured. Please set NEXT_PUBLIC_MAPBOX_TOKEN in your environment.
                     </div>

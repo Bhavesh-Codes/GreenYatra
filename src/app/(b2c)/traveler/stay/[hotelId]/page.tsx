@@ -26,6 +26,7 @@ import {
     MapPin,
     ShieldCheck
 } from 'lucide-react';
+import { useAuth } from '@/lib/auth-context';
 import type { Hotel, Stay, GuestAction } from '@/types/database';
 
 interface EcoNudge {
@@ -110,6 +111,7 @@ interface RedeemedVoucher {
 export default function StayModePage() {
     const params = useParams();
     const hotelId = (params?.hotelId as string) || '';
+    const { user, isLoading: isAuthLoading } = useAuth();
 
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
@@ -128,7 +130,7 @@ export default function StayModePage() {
 
     // On mount: initialize stay & fetch hotel info
     useEffect(() => {
-        if (!hotelId) return;
+        if (!hotelId || isAuthLoading) return;
 
         let isMounted = true;
         const initializeStayMode = async () => {
@@ -140,7 +142,11 @@ export default function StayModePage() {
                 const stayRes = await fetch('/api/stay/checkin', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ hotel_id: hotelId })
+                    body: JSON.stringify({
+                        hotel_id: hotelId,
+                        guest_name: user?.fullName,
+                        guest_email: user?.email
+                    })
                 });
                 const stayData = await stayRes.json();
 
@@ -187,7 +193,7 @@ export default function StayModePage() {
         return () => {
             isMounted = false;
         };
-    }, [hotelId]);
+    }, [hotelId, isAuthLoading, user?.fullName, user?.email]);
 
     // Handle executing daily eco-nudge action
     const handleTriggerAction = async (nudge: EcoNudge) => {
@@ -405,11 +411,11 @@ export default function StayModePage() {
                             </h2>
                         </div>
                         <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-                            Welcome, {stay.guest_name || 'Guest'}
+                            Welcome, {stay.guest_name || user?.fullName || 'Eco Traveler'}
                         </h1>
                         <div className="flex flex-wrap items-center gap-2 text-xs">
                             <span className="px-3 py-1 rounded-lg bg-slate-100 font-semibold text-slate-700 border border-slate-200/80">
-                                Room {stay.room_number || '304'}
+                                {stay.room_number?.startsWith('Room') ? stay.room_number : `Room ${stay.room_number || '304'}`}
                             </span>
                             <span className="px-3 py-1 rounded-lg bg-emerald-50 text-emerald-800 font-semibold border border-emerald-200">
                                 ✓ Checked In

@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import AppNavbar from '@/components/AppNavbar';
 import {
     Leaf,
     Building2,
@@ -75,11 +77,21 @@ const PRESET_ROUTES = [
     { origin: 'Delhi, Connaught Place', destination: 'Jaipur, Pink City' }
 ];
 
-export default function TravelerPage() {
-    // Search form inputs
-    const [origin, setOrigin] = useState<string>('Mumbai, Bandra West');
-    const [destination, setDestination] = useState<string>('Goa, Vagator');
+function TravelerContent() {
+    const searchParams = useSearchParams();
+    const urlOrigin = searchParams.get('origin');
+    const urlDestination = searchParams.get('destination');
+
+    // Search form inputs (empty by default unless URL parameters provided)
+    const [origin, setOrigin] = useState<string>(urlOrigin || '');
+    const [destination, setDestination] = useState<string>(urlDestination || '');
     const [travelers, setTravelers] = useState<number>(1);
+
+    // Real-time geocoded preview location points
+    const [previewOrigin, setPreviewOrigin] = useState<{ name: string; lat: number; lng: number } | null>(null);
+    const [previewDestination, setPreviewDestination] = useState<{ name: string; lat: number; lng: number } | null>(null);
+    const [isGeocodingOrigin, setIsGeocodingOrigin] = useState<boolean>(false);
+    const [isGeocodingDest, setIsGeocodingDest] = useState<boolean>(false);
 
     // Accessibility filter state
     const [accessibilityFilters, setAccessibilityFilters] = useState<AccessibilityFiltersState>({
@@ -93,6 +105,68 @@ export default function TravelerPage() {
     const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [searchResult, setSearchResult] = useState<TripSearchResponse | null>(null);
+
+    // Helper to geocode a place query via Mapbox Geocoding API (client-side)
+    const geocodeLocationQuery = async (query: string): Promise<{ name: string; lat: number; lng: number } | null> => {
+        const trimmed = query.trim();
+        if (!trimmed) return null;
+        const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+        if (!token) return null;
+
+        try {
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(trimmed)}.json?access_token=${token}&country=IN&limit=1`;
+            const res = await fetch(url);
+            if (!res.ok) return null;
+            const data = await res.json();
+            const feat = data.features?.[0];
+            if (!feat || !feat.center) return null;
+
+            return {
+                name: feat.text || feat.place_name || trimmed,
+                lng: feat.center[0],
+                lat: feat.center[1]
+            };
+        } catch (err) {
+            console.warn('Geocoding preview error:', err);
+            return null;
+        }
+    };
+
+    // Debounced geocoding (300ms) for Origin input
+    useEffect(() => {
+        if (!origin.trim()) {
+            setPreviewOrigin(null);
+            setIsGeocodingOrigin(false);
+            return;
+        }
+
+        setIsGeocodingOrigin(true);
+        const timer = setTimeout(async () => {
+            const point = await geocodeLocationQuery(origin);
+            setPreviewOrigin(point);
+            setIsGeocodingOrigin(false);
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [origin]);
+
+    // Debounced geocoding (300ms) for Destination input
+    useEffect(() => {
+        if (!destination.trim()) {
+            setPreviewDestination(null);
+            setIsGeocodingDest(false);
+            return;
+        }
+
+        setIsGeocodingDest(true);
+        const timer = setTimeout(async () => {
+            const point = await geocodeLocationQuery(destination);
+            setPreviewDestination(point);
+            setIsGeocodingDest(false);
+        }, 300);
+
+        return () => clearTimeout(timer);
+    }, [destination]);
 
     // Toggle individual accessibility filter
     const toggleFilter = (key: keyof AccessibilityFiltersState) => {
@@ -141,11 +215,72 @@ export default function TravelerPage() {
         }
     };
 
-    // Set preset route
+    // Auto-trigger search if origin and destination query parameters are provided in URL
+    useEffect(() => {
+        const o = urlOrigin?.trim();
+        const d = urlDestination?.trim();
+
+        if (o) setOrigin(o);
+        if (d) setDestination(d);
+
+        if (o && d) {
+            setLoading(true);
+            setError(null);
+
+            // Preview pins immediately
+            geocodeLocationQuery(o).then((p) => p && setPreviewOrigin(p));
+            geocodeLocationQuery(d).then((p) => p && setPreviewDestination(p));
+
+            fetch('/api/trip/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    origin: o,
+                    destination: d,
+                    travelers: 1
+                })
+            })
+                .then((res) => res.json())
+                .then((data: TripSearchResponse) => {
+                    if (data.success) {
+                        setSearchResult(data);
+                    } else {
+                        setError(data.error || 'Failed to calculate green routes.');
+                    }
+                })
+                .catch((err: unknown) => {
+                    const error = err as Error;
+                    console.error('Auto trip search error:', error);
+                    setError(error.message || 'Unable to connect to trip calculation service.');
+                })
+                .finally(() => {
+                    setLoading(false);
+                });
+        }
+    }, [urlOrigin, urlDestination]);
+
+    // Set preset route with immediate pin preview
     const applyPreset = (presetOrigin: string, presetDest: string) => {
         setOrigin(presetOrigin);
         setDestination(presetDest);
+        setSearchResult(null);
+
+        // Instantly preview pins for fast responsiveness
+        geocodeLocationQuery(presetOrigin).then((p) => p && setPreviewOrigin(p));
+        geocodeLocationQuery(presetDest).then((p) => p && setPreviewDestination(p));
     };
+
+    // Active origin & destination for persistent map (uses searchResult if available, otherwise preview pins)
+    const activeOrigin = useMemo(() => {
+        return searchResult?.origin || previewOrigin;
+    }, [searchResult, previewOrigin]);
+
+    const activeDestination = useMemo(() => {
+        return searchResult?.destination || previewDestination;
+    }, [searchResult, previewDestination]);
+
+    // Highway road geometry is only passed after user clicks "Calculate Green Routes"
+    const activeGeometry = searchResult?.route_geometry;
 
     // Filter hotels by active accessibility criteria and order by Green Score descending
     const filteredHotels = useMemo(() => {
@@ -253,35 +388,8 @@ export default function TravelerPage() {
 
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
-            {/* Top Navigation Bar */}
-            <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-                    {/* Brand */}
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
-                            <Leaf className="w-5 h-5" />
-                        </div>
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <span className="font-bold text-lg text-slate-900 tracking-tight">GreenYatra</span>
-                                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                    Traveler
-                                </span>
-                            </div>
-                            <p className="text-xs text-slate-500 hidden sm:block">Sustainable & Accessible Route Engine</p>
-                        </div>
-                    </div>
-
-                    {/* Switch to Hotel ESG OS Button */}
-                    <Link
-                        href="/hotel"
-                        className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200/80 rounded-xl border border-slate-200 transition-colors shadow-2xs"
-                    >
-                        <Building2 className="w-4 h-4 text-emerald-600" />
-                        <span>Switch to Hotel ESG OS</span>
-                    </Link>
-                </div>
-            </header>
+            {/* Top Shared Navigation Bar */}
+            <AppNavbar />
 
             {/* Main Content Area */}
             <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -317,7 +425,10 @@ export default function TravelerPage() {
                                         id="origin-input"
                                         type="text"
                                         value={origin}
-                                        onChange={(e) => setOrigin(e.target.value)}
+                                        onChange={(e) => {
+                                            setOrigin(e.target.value);
+                                            if (searchResult) setSearchResult(null);
+                                        }}
                                         placeholder="e.g. Mumbai, Bandra West"
                                         className="w-full pl-10 pr-4 py-3 bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm transition-all"
                                         required
@@ -338,7 +449,10 @@ export default function TravelerPage() {
                                         id="destination-input"
                                         type="text"
                                         value={destination}
-                                        onChange={(e) => setDestination(e.target.value)}
+                                        onChange={(e) => {
+                                            setDestination(e.target.value);
+                                            if (searchResult) setSearchResult(null);
+                                        }}
                                         placeholder="e.g. Goa, Vagator"
                                         className="w-full pl-10 pr-4 py-3 bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm transition-all"
                                         required
@@ -498,10 +612,67 @@ export default function TravelerPage() {
                     </div>
                 )}
 
+                {/* Persistent Interactive Route Map */}
+                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                                    <span>Interactive Route &amp; Transit Map</span>
+                                </h2>
+                                {activeGeometry && activeGeometry.length > 0 && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                        Highway Geometry Loaded
+                                    </span>
+                                )}
+                                {(isGeocodingOrigin || isGeocodingDest) && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                                        <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
+                                        Pinpoint preview...
+                                    </span>
+                                )}
+                            </div>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                                {activeOrigin && activeDestination ? (
+                                    <span>
+                                        Route preview between <strong className="text-slate-700">{activeOrigin.name}</strong> and{' '}
+                                        <strong className="text-slate-700">{activeDestination.name}</strong>
+                                    </span>
+                                ) : activeOrigin ? (
+                                    <span>
+                                        Origin pinned at <strong className="text-slate-700">{activeOrigin.name}</strong>. Enter destination to preview route.
+                                    </span>
+                                ) : activeDestination ? (
+                                    <span>
+                                        Destination pinned at <strong className="text-slate-700">{activeDestination.name}</strong>. Enter origin to preview route.
+                                    </span>
+                                ) : (
+                                    <span>Centering on India corridor network. Type an origin and destination to drop real-time pins.</span>
+                                )}
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-600 self-start sm:self-center">
+                            <span className="flex items-center gap-1.5 font-medium">
+                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-xs" /> Origin
+                            </span>
+                            <span className="flex items-center gap-1.5 font-medium">
+                                <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-xs" /> Destination
+                            </span>
+                        </div>
+                    </div>
+
+                    <RouteMap
+                        origin={activeOrigin}
+                        destination={activeDestination}
+                        geometry={activeGeometry}
+                        className="w-full h-80 sm:h-96 rounded-xl overflow-hidden border border-slate-200 shadow-2xs"
+                    />
+                </div>
+
                 {/* Loading State Skeleton */}
                 {loading && !searchResult && (
                     <div className="space-y-6 animate-pulse">
-                        <div className="h-80 bg-slate-200 rounded-2xl" />
                         <div className="h-24 bg-slate-200 rounded-xl" />
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="h-44 bg-slate-200 rounded-2xl" />
@@ -514,35 +685,6 @@ export default function TravelerPage() {
                 {/* Results Section (rendered once data arrives) */}
                 {searchResult && (
                     <div className="space-y-8 animate-fadeIn">
-                        {/* Interactive Route Map */}
-                        <div className="space-y-3">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                                <div>
-                                    <h2 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                                        <span>Interactive Route Map</span>
-                                    </h2>
-                                    <p className="text-xs text-slate-500">
-                                        Showing route from <strong className="text-slate-700">{searchResult.origin.name}</strong> to{' '}
-                                        <strong className="text-slate-700">{searchResult.destination.name}</strong>
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-3 text-xs text-slate-600">
-                                    <span className="flex items-center gap-1.5">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Origin
-                                    </span>
-                                    <span className="flex items-center gap-1.5">
-                                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Destination
-                                    </span>
-                                </div>
-                            </div>
-
-                            <RouteMap
-                                origin={searchResult.origin}
-                                destination={searchResult.destination}
-                                geometry={searchResult.route_geometry}
-                                className="w-full h-80 rounded-2xl overflow-hidden border border-slate-200 shadow-sm"
-                            />
-                        </div>
 
                         {/* Gemini Carbon Translation Banner */}
                         {searchResult.carbon_explanation && (
@@ -899,5 +1041,19 @@ export default function TravelerPage() {
                 </div>
             </footer>
         </div>
+    );
+}
+
+export default function TravelerPage() {
+    return (
+        <Suspense
+            fallback={
+                <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                </div>
+            }
+        >
+            <TravelerContent />
+        </Suspense>
     );
 }
