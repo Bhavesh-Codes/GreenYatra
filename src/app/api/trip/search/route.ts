@@ -238,6 +238,7 @@ export async function POST(req: Request) {
                 lat: destGeo.lat,
                 lng: destGeo.lng
             },
+            route_geometry: baselineRoad.geometry,
             route_options: routeOptions,
             carbon_explanation: carbonExplanation,
             hotels

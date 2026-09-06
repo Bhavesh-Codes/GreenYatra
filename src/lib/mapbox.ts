@@ -13,6 +13,7 @@ export interface GeocodedLocation {
 export interface RouteDistanceResult {
     distance_km: number;
     duration_mins: number;
+    geometry: [number, number][];
 }
 
 /**
@@ -121,27 +122,39 @@ export async function geocodeLocation(query: string): Promise<GeocodedLocation |
 }
 
 /**
- * Computes baseline road distance (in km) and driving duration (in minutes) between two coordinates
- * using Mapbox Directions API v5.
+ * Computes baseline road distance (in km), driving duration (in minutes), and full road geometry
+ * between two coordinates using Mapbox Directions API v5.
  */
 export async function getRouteDistance(
-    origin: { lat: number; lng: number },
-    destination: { lat: number; lng: number }
+    originCoords: [number, number] | { lat: number; lng: number },
+    destCoords: [number, number] | { lat: number; lng: number }
 ): Promise<RouteDistanceResult> {
-    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-    const haversineDist = calculateHaversineDistance(origin.lat, origin.lng, destination.lat, destination.lng);
+    const originArr: [number, number] = Array.isArray(originCoords)
+        ? originCoords
+        : [originCoords.lat, originCoords.lng];
+    const destArr: [number, number] = Array.isArray(destCoords)
+        ? destCoords
+        : [destCoords.lat, destCoords.lng];
 
+    const haversineDist = calculateHaversineDistance(originArr[0], originArr[1], destArr[0], destArr[1]);
+    const fallbackGeometry: [number, number][] = [
+        [originArr[1], originArr[0]],
+        [destArr[1], destArr[0]]
+    ];
+
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
     if (!token) {
         console.warn('[Mapbox] NEXT_PUBLIC_MAPBOX_TOKEN not configured, using Haversine estimation.');
         const roadDist = Math.round(haversineDist * 1.28 * 10) / 10;
         return {
             distance_km: roadDist,
-            duration_mins: Math.round((roadDist / 60) * 60)
+            duration_mins: Math.round((roadDist / 60) * 60),
+            geometry: fallbackGeometry
         };
     }
 
     try {
-        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?access_token=${token}&overview=false`;
+        const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${originArr[1]},${originArr[0]};${destArr[1]},${destArr[0]}?geometries=geojson&overview=full&access_token=${token}`;
         const res = await fetch(url);
 
         if (!res.ok) {
@@ -149,7 +162,8 @@ export async function getRouteDistance(
             const roadDist = Math.round(haversineDist * 1.28 * 10) / 10;
             return {
                 distance_km: roadDist,
-                duration_mins: Math.round((roadDist / 60) * 60)
+                duration_mins: Math.round((roadDist / 60) * 60),
+                geometry: fallbackGeometry
             };
         }
 
@@ -160,20 +174,25 @@ export async function getRouteDistance(
             const roadDist = Math.round(haversineDist * 1.28 * 10) / 10;
             return {
                 distance_km: roadDist,
-                duration_mins: Math.round((roadDist / 60) * 60)
+                duration_mins: Math.round((roadDist / 60) * 60),
+                geometry: fallbackGeometry
             };
         }
 
+        const geometry = (route.geometry?.coordinates as [number, number][]) || fallbackGeometry;
+
         return {
             distance_km: Math.round((route.distance / 1000) * 10) / 10,
-            duration_mins: Math.round(route.duration / 60)
+            duration_mins: Math.round(route.duration / 60),
+            geometry
         };
     } catch (err) {
         console.error('[Mapbox] Directions API error, using fallback:', err);
         const roadDist = Math.round(haversineDist * 1.28 * 10) / 10;
         return {
             distance_km: roadDist,
-            duration_mins: Math.round((roadDist / 60) * 60)
+            duration_mins: Math.round((roadDist / 60) * 60),
+            geometry: fallbackGeometry
         };
     }
 }
