@@ -96,6 +96,7 @@ export default function HotelDashboardPage() {
     const router = useRouter();
     const hotelId = (params?.id as string) || '';
     const { user, signOut } = useAuth();
+    const isReadOnlyTraveler = user?.role === 'traveler';
 
     const handleSignOut = async () => {
         try {
@@ -635,19 +636,81 @@ export default function HotelDashboardPage() {
                         )}
                     </div>
 
-                    <div className="flex items-center space-x-4">
+                    <div className="flex items-center space-x-3">
                         <Link
-                            href="/"
-                            className="flex items-center space-x-1.5 text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-lg transition"
+                            href="/traveler"
+                            className="flex items-center space-x-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl transition shadow-2xs"
                         >
-                            <span>Traveler View</span>
+                            <span>{isReadOnlyTraveler ? 'Return to Trip Planner' : 'Switch to Traveler View'}</span>
                             <ExternalLink className="w-3.5 h-3.5" />
                         </Link>
+
+                        {/* Operator Auth Details & Logout */}
+                        <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+                            <div className="hidden md:flex items-center gap-2 bg-slate-50 border border-slate-200/90 rounded-xl py-1 px-2.5">
+                                <div className={`w-6 h-6 rounded-lg text-white font-bold text-xs flex items-center justify-center ${isReadOnlyTraveler ? 'bg-emerald-600' : 'bg-slate-800'}`}>
+                                    {user?.fullName ? user.fullName.charAt(0).toUpperCase() : (isReadOnlyTraveler ? 'T' : 'O')}
+                                </div>
+                                <div className="text-left">
+                                    <p className="text-xs font-bold text-slate-900 leading-tight truncate max-w-[120px]">
+                                        {user?.fullName || (isReadOnlyTraveler ? 'Traveler Guest' : 'Operator Demo')}
+                                    </p>
+                                    <span
+                                        className={`text-[9px] font-bold uppercase tracking-wider px-1 py-0.2 rounded border block ${
+                                            isReadOnlyTraveler
+                                                ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                                                : 'bg-slate-200/70 text-slate-700 border-slate-300'
+                                        }`}
+                                    >
+                                        {isReadOnlyTraveler ? 'TRAVELER' : 'HOTEL OPERATOR'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={handleSignOut}
+                                title="Sign Out"
+                                className="flex items-center gap-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2.5 py-1.5 rounded-xl transition cursor-pointer"
+                            >
+                                <LogOut className="w-3.5 h-3.5" />
+                                <span className="hidden sm:inline">Sign Out</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </header>
 
             <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 space-y-6">
+                {/* Read-Only Traveler Preview Notice */}
+                {isReadOnlyTraveler && (
+                    <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xs">
+                        <div className="flex items-start sm:items-center gap-3.5">
+                            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center shrink-0 shadow-2xs">
+                                <ShieldCheck className="w-5 h-5 text-amber-700" />
+                            </div>
+                            <div className="space-y-0.5">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-bold text-amber-900 uppercase tracking-wider">
+                                        Read-Only Traveler Preview
+                                    </span>
+                                    <span className="text-[10px] font-semibold bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-md">
+                                        Public Verification Mode
+                                    </span>
+                                </div>
+                                <p className="text-xs text-amber-800 leading-relaxed">
+                                    You are viewing this eco-certified resort&apos;s verified ESG telemetry as a <strong className="font-semibold text-amber-950">Traveler</strong>. Operational mutations, AI resolution generation, and task status toggles are restricted to authorized hotel operators.
+                                </p>
+                            </div>
+                        </div>
+                        <Link
+                            href="/traveler"
+                            className="inline-flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-amber-100/60 text-amber-900 text-xs font-bold rounded-xl border border-amber-300 shadow-2xs transition shrink-0"
+                        >
+                            <span>Return to Trip Planner</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                        </Link>
+                    </div>
+                )}
                 {/* Section 1: Hotel Title & Main Green Score Hero */}
                 <div className="bg-white rounded-2xl border border-emerald-100/90 shadow-sm p-6 sm:p-8 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
                     <div className="space-y-3 max-w-2xl">
@@ -727,18 +790,25 @@ export default function HotelDashboardPage() {
                             </div>
                         </div>
 
-                        <button
-                            onClick={handleGenerateRecommendations}
-                            disabled={generatingRecos}
-                            className="inline-flex items-center gap-2 px-4 py-2 bg-rose-700 hover:bg-rose-800 disabled:bg-rose-400 text-white rounded-xl text-xs font-semibold shadow-xs transition hover:shadow cursor-pointer shrink-0"
-                        >
-                            {generatingRecos ? (
-                                <RefreshCw className="w-4 h-4 text-white animate-spin" />
-                            ) : (
-                                <Sparkles className="w-4 h-4 text-amber-300" />
-                            )}
-                            <span>{generatingRecos ? 'Gemini Analyzing...' : 'Generate AI Resolution'}</span>
-                        </button>
+                        {!isReadOnlyTraveler ? (
+                            <button
+                                onClick={handleGenerateRecommendations}
+                                disabled={generatingRecos}
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-rose-700 hover:bg-rose-800 disabled:bg-rose-400 text-white rounded-xl text-xs font-semibold shadow-xs transition hover:shadow cursor-pointer shrink-0"
+                            >
+                                {generatingRecos ? (
+                                    <RefreshCw className="w-4 h-4 text-white animate-spin" />
+                                ) : (
+                                    <Sparkles className="w-4 h-4 text-amber-300" />
+                                )}
+                                <span>{generatingRecos ? 'Gemini Analyzing...' : 'Generate AI Resolution'}</span>
+                            </button>
+                        ) : (
+                            <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-100 text-rose-800 rounded-xl text-xs font-semibold border border-rose-200 shrink-0">
+                                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                                <span>Operator Attention Required</span>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -1144,19 +1214,26 @@ export default function HotelDashboardPage() {
                                 </button>
                             </div>
 
-                            {/* Primary Generate AI Recommendations Button */}
-                            <button
-                                onClick={handleGenerateRecommendations}
-                                disabled={generatingRecos}
-                                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white rounded-xl text-xs font-bold shadow-xs transition hover:shadow cursor-pointer shrink-0"
-                            >
-                                {generatingRecos ? (
-                                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                                ) : (
-                                    <Sparkles className="w-4 h-4 text-amber-300" />
-                                )}
-                                <span>{generatingRecos ? 'Gemini Analyzing Telemetry...' : 'Generate AI Recommendations'}</span>
-                            </button>
+                            {/* Primary Generate AI Recommendations Button (Hidden for Read-Only Travelers) */}
+                            {!isReadOnlyTraveler ? (
+                                <button
+                                    onClick={handleGenerateRecommendations}
+                                    disabled={generatingRecos}
+                                    className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white rounded-xl text-xs font-bold shadow-xs transition hover:shadow cursor-pointer shrink-0"
+                                >
+                                    {generatingRecos ? (
+                                        <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                                    ) : (
+                                        <Sparkles className="w-4 h-4 text-amber-300" />
+                                    )}
+                                    <span>{generatingRecos ? 'Gemini Analyzing Telemetry...' : 'Generate AI Recommendations'}</span>
+                                </button>
+                            ) : (
+                                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 text-slate-600 rounded-xl text-xs font-semibold border border-slate-200">
+                                    <ShieldCheck className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>Verified Recommendations (Read-Only)</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -1226,42 +1303,56 @@ export default function HotelDashboardPage() {
                                                 )}
                                             </div>
 
-                                            {/* Status Selector Dropdown / Button Group */}
-                                            <div className="flex items-center bg-slate-100/90 p-0.5 rounded-lg border border-slate-200 text-[11px] shrink-0">
-                                                <button
-                                                    onClick={() => handleStatusChange(reco.id, 'Suggested')}
-                                                    disabled={isUpdating}
-                                                    className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
-                                                        reco.status === 'Suggested'
-                                                            ? 'bg-white text-slate-800 font-bold shadow-2xs'
-                                                            : 'text-slate-500 hover:text-slate-900'
-                                                    }`}
-                                                >
-                                                    Suggested
-                                                </button>
-                                                <button
-                                                    onClick={() => handleStatusChange(reco.id, 'In Progress')}
-                                                    disabled={isUpdating}
-                                                    className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
-                                                        reco.status === 'In Progress'
-                                                            ? 'bg-sky-600 text-white font-bold shadow-2xs'
-                                                            : 'text-slate-500 hover:text-slate-900'
-                                                    }`}
-                                                >
-                                                    In Progress
-                                                </button>
-                                                <button
-                                                    onClick={() => handleStatusChange(reco.id, 'Verified Complete')}
-                                                    disabled={isUpdating}
-                                                    className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
+                                            {/* Status Selector Dropdown / Button Group for Operators or Static Pill for Travelers */}
+                                            {!isReadOnlyTraveler ? (
+                                                <div className="flex items-center bg-slate-100/90 p-0.5 rounded-lg border border-slate-200 text-[11px] shrink-0">
+                                                    <button
+                                                        onClick={() => handleStatusChange(reco.id, 'Suggested')}
+                                                        disabled={isUpdating}
+                                                        className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
+                                                            reco.status === 'Suggested'
+                                                                ? 'bg-white text-slate-800 font-bold shadow-2xs'
+                                                                : 'text-slate-500 hover:text-slate-900'
+                                                        }`}
+                                                    >
+                                                        Suggested
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleStatusChange(reco.id, 'In Progress')}
+                                                        disabled={isUpdating}
+                                                        className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
+                                                            reco.status === 'In Progress'
+                                                                ? 'bg-sky-600 text-white font-bold shadow-2xs'
+                                                                : 'text-slate-500 hover:text-slate-900'
+                                                        }`}
+                                                    >
+                                                        In Progress
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleStatusChange(reco.id, 'Verified Complete')}
+                                                        disabled={isUpdating}
+                                                        className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
+                                                            reco.status === 'Verified Complete'
+                                                                ? 'bg-emerald-600 text-white font-bold shadow-2xs'
+                                                                : 'text-slate-500 hover:text-slate-900'
+                                                        }`}
+                                                    >
+                                                        Complete
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span
+                                                    className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg border shrink-0 ${
                                                         reco.status === 'Verified Complete'
-                                                            ? 'bg-emerald-600 text-white font-bold shadow-2xs'
-                                                            : 'text-slate-500 hover:text-slate-900'
+                                                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                                            : reco.status === 'In Progress'
+                                                            ? 'bg-sky-100 text-sky-800 border-sky-300'
+                                                            : 'bg-slate-100 text-slate-700 border-slate-300'
                                                     }`}
                                                 >
-                                                    Complete
-                                                </button>
-                                            </div>
+                                                    {reco.status}
+                                                </span>
+                                            )}
                                         </div>
 
                                         {/* Title & Description */}

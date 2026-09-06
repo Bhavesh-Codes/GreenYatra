@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import {
@@ -10,7 +10,8 @@ import {
     PlusCircle,
     LogOut,
     Menu,
-    X
+    X,
+    Eye
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 
@@ -34,11 +35,29 @@ export default function AppNavbar() {
         }
     };
 
-    const navLinks = [
-        { name: 'Trip Planner', href: '/traveler', icon: Compass },
-        { name: 'Hotel ESG OS', href: '/hotel', icon: Building2 },
-        { name: 'Onboard Property', href: '/hotel/onboard', icon: PlusCircle }
-    ];
+    // Role-Aware Navigation Links
+    const navLinks = useMemo(() => {
+        if (!user) {
+            return [
+                { name: 'Trip Planner', href: '/traveler', icon: Compass },
+                { name: 'How It Works', href: '/#how-it-works', icon: Leaf }
+            ];
+        }
+
+        if (user.role === 'traveler') {
+            return [
+                { name: 'Trip Planner', href: '/traveler', icon: Compass },
+                { name: 'Explore Hotels', href: '/traveler', icon: Building2 }
+            ];
+        }
+
+        // user.role === 'hotel'
+        return [
+            { name: 'My Hotel Dashboard', href: '/hotel', icon: Building2 },
+            { name: 'Onboard Property', href: '/hotel/onboard', icon: PlusCircle },
+            { name: 'Preview as Traveler', href: '/traveler', icon: Eye }
+        ];
+    }, [user]);
 
     return (
         <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-2xs">
@@ -61,11 +80,11 @@ export default function AppNavbar() {
                     </div>
                 </Link>
 
-                {/* Middle Links: Trip Planner, Hotel ESG OS, Onboard Property */}
+                {/* Middle Links: Role-Aware Navigation (Desktop) */}
                 <nav className="hidden md:flex items-center gap-1 lg:gap-2">
                     {navLinks.map((link) => {
                         const Icon = link.icon;
-                        const isActive = pathname === link.href || (link.href !== '/' && pathname?.startsWith(link.href));
+                        const isActive = pathname === link.href || (link.href !== '/' && link.href !== '/traveler' && pathname?.startsWith(link.href));
                         return (
                             <Link
                                 key={link.name}
@@ -97,21 +116,15 @@ export default function AppNavbar() {
                                     {user.fullName || user.email}
                                 </p>
                                 <span
-                                    className={`inline-block text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.2 rounded border ${
+                                    className={`inline-block text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded border ${
                                         user.role === 'hotel'
                                             ? 'bg-slate-100 text-slate-800 border-slate-300'
                                             : 'bg-emerald-100 text-emerald-800 border-emerald-200'
                                     }`}
                                 >
-                                    {user.role === 'hotel' ? 'Hotel Operator' : 'Traveler'}
+                                    {user.role === 'hotel' ? 'HOTEL OPERATOR' : 'TRAVELER'}
                                 </span>
                             </div>
-                            <Link
-                                href={user.role === 'hotel' ? '/hotel' : '/traveler'}
-                                className="text-xs font-semibold px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors shadow-2xs"
-                            >
-                                Dashboard
-                            </Link>
                             <button
                                 onClick={handleSignOut}
                                 disabled={signingOut}
@@ -134,7 +147,7 @@ export default function AppNavbar() {
                                 href="/auth/hotel"
                                 className="px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-slate-900 hover:bg-emerald-700 rounded-xl transition-colors shadow-xs"
                             >
-                                Hotel Portal
+                                Hotel Operator Portal
                             </Link>
                         </div>
                     )}
@@ -172,13 +185,13 @@ export default function AppNavbar() {
                             <div className="flex-1 min-w-0">
                                 <p className="text-sm font-bold text-slate-900 truncate">{user.fullName || user.email}</p>
                                 <span
-                                    className={`inline-block text-[10px] font-semibold uppercase px-1.5 py-0.2 rounded border ${
+                                    className={`inline-block text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.2 rounded border ${
                                         user.role === 'hotel'
                                             ? 'bg-slate-100 text-slate-800 border-slate-300'
                                             : 'bg-emerald-100 text-emerald-800 border-emerald-200'
                                     }`}
                                 >
-                                    {user.role === 'hotel' ? 'Hotel Operator' : 'Traveler'}
+                                    {user.role === 'hotel' ? 'HOTEL OPERATOR' : 'TRAVELER'}
                                 </span>
                             </div>
                         </div>
@@ -230,7 +243,7 @@ export default function AppNavbar() {
                                     onClick={() => setMobileMenuOpen(false)}
                                     className="text-center px-3 py-2 text-xs font-semibold text-white bg-slate-900 rounded-xl"
                                 >
-                                    Hotel Portal
+                                    Hotel Operator Portal
                                 </Link>
                             </div>
                         )}

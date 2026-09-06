@@ -30,6 +30,7 @@ export interface Hotel {
     green_score: number;
     green_tag: GreenTag;
     score_breakdown: ScoreBreakdown;
+    owner_user_id?: string | null;
 }
 
 export interface HotelUsage {

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import AppNavbar from '@/components/AppNavbar';
+import { useAuth } from '@/lib/auth-context';
 import {
     Building2,
     ArrowLeft,
@@ -40,10 +41,20 @@ const LocationPickerMap = dynamic(() => import('@/components/LocationPickerMap')
 
 export default function HotelOnboardPage() {
     const router = useRouter();
+    const { user, session, isLoading, signOut } = useAuth();
 
     const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // Enforce authentication redirect once loaded
+    useEffect(() => {
+        if (!isLoading) {
+            if (!user) {
+                router.replace('/auth/hotel?redirect=/hotel/onboard');
+            }
+        }
+    }, [user, isLoading, router]);
 
     // Step 1: Property Details & Geolocation
     const [name, setName] = useState('');
@@ -158,6 +169,7 @@ export default function HotelOnboardPage() {
                 price_per_night: Number(pricePerNight) || 5000,
                 image_url: imageUrl.trim(),
                 description: description.trim() || undefined,
+                owner_user_id: user?.id,
                 baseline_audit: {
                     renewable_energy_pct: renewableEnergyPct,
                     low_flow_fixtures: lowFlowFixtures,
@@ -172,9 +184,16 @@ export default function HotelOnboardPage() {
                 }
             };
 
+            const headers: Record<string, string> = {
+                'Content-Type': 'application/json'
+            };
+            if (session?.access_token) {
+                headers['Authorization'] = `Bearer ${session.access_token}`;
+            }
+
             const res = await fetch('/api/hotel/onboard', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers,
                 body: JSON.stringify(payload)
             });
 
@@ -192,6 +211,67 @@ export default function HotelOnboardPage() {
             setSubmitting(false);
         }
     };
+
+    // 1. Loading State while resolving auth
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+                <AppNavbar />
+                <main className="flex-1 max-w-3xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-20 flex flex-col items-center justify-center space-y-4">
+                    <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+                    <p className="text-sm font-medium text-slate-600">Verifying Operator Credentials...</p>
+                </main>
+            </div>
+        );
+    }
+
+    // 2. Access Restricted Card for non-hotel operators (e.g. travelers)
+    if (user && user.role !== 'hotel') {
+        return (
+            <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+                <AppNavbar />
+                <main className="flex-1 max-w-xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-16 flex flex-col items-center justify-center">
+                    <div className="bg-white border border-slate-200 rounded-3xl p-8 sm:p-10 shadow-md text-center space-y-6 w-full animate-in fade-in zoom-in-95 duration-200">
+                        <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center mx-auto shadow-xs">
+                            <ShieldCheck className="w-8 h-8" />
+                        </div>
+                        <div className="space-y-2">
+                            <span className="inline-block text-[11px] font-bold text-rose-700 bg-rose-100/80 border border-rose-200 px-3 py-0.5 rounded-full uppercase tracking-wider">
+                                Access Restricted
+                            </span>
+                            <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
+                                Hotel Operator Portal
+                            </h2>
+                            <p className="text-sm text-slate-600 leading-relaxed max-w-md mx-auto">
+                                This section is reserved for verified Hotel &amp; Resort Operators. You are currently signed in with a <strong className="text-slate-900 font-semibold">Traveler</strong> account.
+                            </p>
+                        </div>
+
+                        <div className="pt-2 flex flex-col sm:flex-row items-center gap-3 justify-center">
+                            <Link
+                                href="/traveler"
+                                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-semibold text-xs sm:text-sm hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                            >
+                                <ArrowLeft className="w-4 h-4" />
+                                <span>Return to Trip Planner</span>
+                            </Link>
+
+                            <button
+                                onClick={async () => {
+                                    await signOut();
+                                    router.push('/auth/hotel?redirect=/hotel/onboard');
+                                }}
+                                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-emerald-700 text-white font-semibold text-xs sm:text-sm shadow-xs transition-colors cursor-pointer"
+                            >
+                                <Building2 className="w-4 h-4" />
+                                <span>Sign In as Hotel Operator</span>
+                            </button>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">

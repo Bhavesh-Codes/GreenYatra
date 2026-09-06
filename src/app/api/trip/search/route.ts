@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { geocodeLocation, getRouteDistance, calculateHaversineDistance } from '@/lib/mapbox';
+import { geocodeLocation, getRouteDistance, calculateHaversineDistance, type GeocodedLocation } from '@/lib/mapbox';
 import { determineViableModes, generateCarbonExplanation } from '@/lib/gemini';
 import { calculateEmissions } from '@/lib/climatiq';
 import { getRouteKey, getCachedData, setCachedData, ROUTE_EMISSIONS_TTL } from '@/lib/redis';
@@ -17,7 +17,14 @@ export interface RouteOption {
 
 export async function POST(req: Request) {
     try {
-        let body: { origin?: unknown; destination?: unknown; travelers?: unknown };
+        let body: {
+            origin?: unknown;
+            destination?: unknown;
+            travelers?: unknown;
+            originCoords?: { name?: string; lat?: number; lng?: number };
+            destinationCoords?: { name?: string; lat?: number; lng?: number };
+            accessibilityFilters?: unknown;
+        };
         try {
             body = await req.json();
         } catch {
@@ -27,7 +34,7 @@ export async function POST(req: Request) {
             );
         }
 
-        const { origin, destination, travelers: rawTravelers } = body;
+        const { origin, destination, travelers: rawTravelers, originCoords, destinationCoords } = body;
 
         // 1. Validate origin and destination strings
         if (
@@ -50,10 +57,26 @@ export async function POST(req: Request) {
                 ? Math.floor(rawTravelers)
                 : 1;
 
-        // 2. Geocode both locations using geocodeLocation from @/lib/mapbox
-        const [originGeo, destGeo] = await Promise.all([
-            geocodeLocation(origin),
-            geocodeLocation(destination)
+        // 2. Geocode locations, skipping geocoding if coordinates are already provided from client
+        const [originGeo, destGeo]: [GeocodedLocation | null, GeocodedLocation | null] = await Promise.all([
+            originCoords && typeof originCoords.lat === 'number' && typeof originCoords.lng === 'number'
+                ? Promise.resolve<GeocodedLocation>({
+                      name: originCoords.name || origin,
+                      place_name: originCoords.name || origin,
+                      lat: originCoords.lat,
+                      lng: originCoords.lng,
+                      city: (originCoords.name || origin).split(',')[0].trim()
+                  })
+                : geocodeLocation(origin),
+            destinationCoords && typeof destinationCoords.lat === 'number' && typeof destinationCoords.lng === 'number'
+                ? Promise.resolve<GeocodedLocation>({
+                      name: destinationCoords.name || destination,
+                      place_name: destinationCoords.name || destination,
+                      lat: destinationCoords.lat,
+                      lng: destinationCoords.lng,
+                      city: (destinationCoords.name || destination).split(',')[0].trim()
+                  })
+                : geocodeLocation(destination)
         ]);
 
         if (!originGeo) {

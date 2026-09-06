@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import {
     ArrowLeft,
     Building2,
@@ -24,7 +24,8 @@ import {
     AlertCircle,
     Loader2,
     MapPin,
-    ShieldCheck
+    ShieldCheck,
+    LogOut
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 import type { Hotel, Stay, GuestAction } from '@/types/database';
@@ -110,8 +111,18 @@ interface RedeemedVoucher {
 
 export default function StayModePage() {
     const params = useParams();
+    const router = useRouter();
     const hotelId = (params?.hotelId as string) || '';
-    const { user, isLoading: isAuthLoading } = useAuth();
+    const { user, isLoading: isAuthLoading, signOut } = useAuth();
+
+    const handleSignOut = async () => {
+        try {
+            await signOut();
+            router.push('/traveler');
+        } catch (err) {
+            console.error('Error signing out from stay:', err);
+        }
+    };
 
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
@@ -334,7 +345,7 @@ export default function StayModePage() {
         return (
             <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
                 <header className="bg-white border-b border-slate-200">
-                    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center">
+                    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
                         <Link
                             href={`/traveler/hotels/${hotelId}`}
                             className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900"
@@ -342,6 +353,13 @@ export default function StayModePage() {
                             <ArrowLeft className="w-4 h-4" />
                             <span>Return to Hotel Details</span>
                         </Link>
+                        <button
+                            onClick={handleSignOut}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-xl transition cursor-pointer"
+                        >
+                            <LogOut className="w-3.5 h-3.5" />
+                            <span>Sign Out</span>
+                        </button>
                     </div>
                 </header>
 
@@ -390,11 +408,20 @@ export default function StayModePage() {
                         <span>Hotel Details</span>
                     </Link>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2.5">
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
                             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                             <span>Stay Mode Active</span>
                         </span>
+
+                        <button
+                            onClick={handleSignOut}
+                            title="Sign Out & Return to Trip Planner"
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-xl transition cursor-pointer shadow-2xs"
+                        >
+                            <LogOut className="w-3.5 h-3.5" />
+                            <span>Sign Out / Leave Stay Mode</span>
+                        </button>
                     </div>
                 </div>
             </header>

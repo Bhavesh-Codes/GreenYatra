@@ -25,8 +25,29 @@ export async function POST(request: Request) {
             latitude: reqLat,
             longitude: reqLng,
             baseline_audit,
-            accessibility_features
+            accessibility_features,
+            owner_user_id: bodyOwnerUserId,
+            userId: bodyUserId
         } = body;
+
+        // Resolve authenticated hotel operator ID from bearer token or request body
+        let ownerUserId: string | null = null;
+        const authHeader = request.headers.get('authorization');
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+            const token = authHeader.replace('Bearer ', '').trim();
+            try {
+                const { data: authData } = await supabaseAdmin.auth.getUser(token);
+                if (authData?.user?.id) {
+                    ownerUserId = authData.user.id;
+                }
+            } catch (authErr) {
+                console.warn('[Onboard] Error decoding auth token:', authErr);
+            }
+        }
+
+        if (!ownerUserId && (bodyOwnerUserId || bodyUserId)) {
+            ownerUserId = (bodyOwnerUserId || bodyUserId) as string;
+        }
 
         if (!name || !city || !address) {
             return NextResponse.json(
@@ -104,7 +125,7 @@ export async function POST(request: Request) {
             accessibility_baseline: Math.min(100, Math.round(25 + accCount * 18.75))
         };
 
-        // 3. Insert new record into 'hotels' table
+        // 3. Insert new record into 'hotels' table with owner_user_id
         const hotelRecord = {
             name: name.trim(),
             city: city.trim(),
@@ -118,6 +139,7 @@ export async function POST(request: Request) {
             green_tag: initialGreenTag,
             score_breakdown: scoreBreakdown,
             accessibility_features: acc,
+            owner_user_id: ownerUserId || null,
             baseline_audit: {
                 renewable_energy_pct: renewablePct,
                 low_flow_fixtures: !!baseline_audit?.low_flow_fixtures,

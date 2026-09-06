@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, Suspense } from 'react';
+import React, { useState, useMemo, useEffect, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import AppNavbar from '@/components/AppNavbar';
+import LocationAutocomplete from '@/components/LocationAutocomplete';
 import {
     Leaf,
     Building2,
@@ -29,7 +30,8 @@ import {
     RotateCcw,
     Award,
     TrendingDown,
-    SlidersHorizontal
+    SlidersHorizontal,
+    Crosshair
 } from 'lucide-react';
 import type { Hotel, GreenTag } from '@/types/database';
 
@@ -72,9 +74,24 @@ interface AccessibilityFiltersState {
 }
 
 const PRESET_ROUTES = [
-    { origin: 'Mumbai, Bandra West', destination: 'Goa, Vagator' },
-    { origin: 'Bengaluru, Indiranagar', destination: 'Coorg, Madikeri' },
-    { origin: 'Delhi, Connaught Place', destination: 'Jaipur, Pink City' }
+    {
+        origin: 'Mumbai, Bandra West',
+        destination: 'Goa, Vagator',
+        originCoords: { name: 'Mumbai, Bandra West', lat: 19.0596, lng: 72.8295 },
+        destCoords: { name: 'Goa, Vagator', lat: 15.5976, lng: 73.7389 }
+    },
+    {
+        origin: 'Bengaluru, Indiranagar',
+        destination: 'Coorg, Madikeri',
+        originCoords: { name: 'Bengaluru, Indiranagar', lat: 12.9716, lng: 77.6412 },
+        destCoords: { name: 'Coorg, Madikeri', lat: 12.4244, lng: 75.7382 }
+    },
+    {
+        origin: 'Delhi, Connaught Place',
+        destination: 'Jaipur, Pink City',
+        originCoords: { name: 'Delhi, Connaught Place', lat: 28.6315, lng: 77.2167 },
+        destCoords: { name: 'Jaipur, Pink City', lat: 26.9221, lng: 75.8267 }
+    }
 ];
 
 function TravelerContent() {
@@ -82,16 +99,26 @@ function TravelerContent() {
     const urlOrigin = searchParams.get('origin');
     const urlDestination = searchParams.get('destination');
 
-    // Search form inputs (empty by default unless URL parameters provided)
+    // Search form input text
     const [origin, setOrigin] = useState<string>(urlOrigin || '');
     const [destination, setDestination] = useState<string>(urlDestination || '');
     const [travelers, setTravelers] = useState<number>(1);
 
-    // Real-time geocoded preview location points
-    const [previewOrigin, setPreviewOrigin] = useState<{ name: string; lat: number; lng: number } | null>(null);
-    const [previewDestination, setPreviewDestination] = useState<{ name: string; lat: number; lng: number } | null>(null);
-    const [isGeocodingOrigin, setIsGeocodingOrigin] = useState<boolean>(false);
-    const [isGeocodingDest, setIsGeocodingDest] = useState<boolean>(false);
+    // Required State Management:
+    // - originLocation: { name: string, lat: number, lng: number } | null
+    // - destinationLocation: { name: string, lat: number, lng: number } | null
+    // - mapSelectingMode: 'origin' | 'destination' | null
+    const [originLocation, setOriginLocation] = useState<{ name: string; lat: number; lng: number } | null>(null);
+    const [destinationLocation, setDestinationLocation] = useState<{ name: string; lat: number; lng: number } | null>(null);
+    const [mapSelectingMode, setMapSelectingMode] = useState<'origin' | 'destination' | null>(null);
+    const [isGeocoding, setIsGeocoding] = useState<boolean>(false);
+
+    // Keep refs to locations to skip unnecessary re-geocoding loops
+    const originLocationRef = useRef(originLocation);
+    originLocationRef.current = originLocation;
+
+    const destLocationRef = useRef(destinationLocation);
+    destLocationRef.current = destinationLocation;
 
     // Accessibility filter state
     const [accessibilityFilters, setAccessibilityFilters] = useState<AccessibilityFiltersState>({
@@ -132,40 +159,60 @@ function TravelerContent() {
         }
     };
 
-    // Debounced geocoding (300ms) for Origin input
+    // Debounced geocoding (350ms) for manually typed Origin if not already set by autocomplete/map
     useEffect(() => {
-        if (!origin.trim()) {
-            setPreviewOrigin(null);
-            setIsGeocodingOrigin(false);
+        const trimmed = origin.trim();
+        if (!trimmed) {
+            setOriginLocation(null);
             return;
         }
 
-        setIsGeocodingOrigin(true);
-        const timer = setTimeout(async () => {
-            const point = await geocodeLocationQuery(origin);
-            setPreviewOrigin(point);
-            setIsGeocodingOrigin(false);
-        }, 300);
+        // Avoid re-geocoding if already set to matching location name
+        if (originLocationRef.current && originLocationRef.current.name.toLowerCase() === trimmed.toLowerCase()) {
+            return;
+        }
 
-        return () => clearTimeout(timer);
+        setIsGeocoding(true);
+        const timer = setTimeout(async () => {
+            const point = await geocodeLocationQuery(trimmed);
+            if (point) {
+                setOriginLocation(point);
+            }
+            setIsGeocoding(false);
+        }, 350);
+
+        return () => {
+            clearTimeout(timer);
+            setIsGeocoding(false);
+        };
     }, [origin]);
 
-    // Debounced geocoding (300ms) for Destination input
+    // Debounced geocoding (350ms) for manually typed Destination if not already set by autocomplete/map
     useEffect(() => {
-        if (!destination.trim()) {
-            setPreviewDestination(null);
-            setIsGeocodingDest(false);
+        const trimmed = destination.trim();
+        if (!trimmed) {
+            setDestinationLocation(null);
             return;
         }
 
-        setIsGeocodingDest(true);
-        const timer = setTimeout(async () => {
-            const point = await geocodeLocationQuery(destination);
-            setPreviewDestination(point);
-            setIsGeocodingDest(false);
-        }, 300);
+        // Avoid re-geocoding if already set to matching location name
+        if (destLocationRef.current && destLocationRef.current.name.toLowerCase() === trimmed.toLowerCase()) {
+            return;
+        }
 
-        return () => clearTimeout(timer);
+        setIsGeocoding(true);
+        const timer = setTimeout(async () => {
+            const point = await geocodeLocationQuery(trimmed);
+            if (point) {
+                setDestinationLocation(point);
+            }
+            setIsGeocoding(false);
+        }, 350);
+
+        return () => {
+            clearTimeout(timer);
+            setIsGeocoding(false);
+        };
     }, [destination]);
 
     // Toggle individual accessibility filter
@@ -174,6 +221,22 @@ function TravelerContent() {
             ...prev,
             [key]: !prev[key]
         }));
+    };
+
+    // Pick location callback from RouteMap (interactive click or dragend)
+    const handlePickLocationOnMap = (
+        target: 'origin' | 'destination',
+        loc: { name: string; lat: number; lng: number }
+    ) => {
+        if (target === 'origin') {
+            setOrigin(loc.name);
+            setOriginLocation(loc);
+        } else {
+            setDestination(loc.name);
+            setDestinationLocation(loc);
+        }
+        setMapSelectingMode(null);
+        setSearchResult(null);
     };
 
     // Calculate Green Routes handler
@@ -187,6 +250,7 @@ function TravelerContent() {
 
         setLoading(true);
         setError(null);
+        setMapSelectingMode(null);
 
         try {
             const res = await fetch('/api/trip/search', {
@@ -195,7 +259,10 @@ function TravelerContent() {
                 body: JSON.stringify({
                     origin: origin.trim(),
                     destination: destination.trim(),
-                    travelers
+                    originCoords: originLocation || undefined,
+                    destinationCoords: destinationLocation || undefined,
+                    travelers,
+                    accessibilityFilters
                 })
             });
 
@@ -227,18 +294,26 @@ function TravelerContent() {
             setLoading(true);
             setError(null);
 
-            // Preview pins immediately
-            geocodeLocationQuery(o).then((p) => p && setPreviewOrigin(p));
-            geocodeLocationQuery(d).then((p) => p && setPreviewDestination(p));
+            // Preview and resolve coordinates
+            Promise.all([
+                geocodeLocationQuery(o),
+                geocodeLocationQuery(d)
+            ]).then(([pOrigin, pDest]) => {
+                if (pOrigin) setOriginLocation(pOrigin);
+                if (pDest) setDestinationLocation(pDest);
 
-            fetch('/api/trip/search', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    origin: o,
-                    destination: d,
-                    travelers: 1
-                })
+                return fetch('/api/trip/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        origin: o,
+                        destination: d,
+                        originCoords: pOrigin || undefined,
+                        destinationCoords: pDest || undefined,
+                        travelers: 1,
+                        accessibilityFilters
+                    })
+                });
             })
                 .then((res) => res.json())
                 .then((data: TripSearchResponse) => {
@@ -259,25 +334,39 @@ function TravelerContent() {
         }
     }, [urlOrigin, urlDestination]);
 
-    // Set preset route with immediate pin preview
-    const applyPreset = (presetOrigin: string, presetDest: string) => {
+    // Set preset route with immediate coordinate and pin update
+    const applyPreset = (
+        presetOrigin: string,
+        presetDest: string,
+        presetOriginCoords?: { name: string; lat: number; lng: number },
+        presetDestCoords?: { name: string; lat: number; lng: number }
+    ) => {
         setOrigin(presetOrigin);
         setDestination(presetDest);
         setSearchResult(null);
+        setMapSelectingMode(null);
 
-        // Instantly preview pins for fast responsiveness
-        geocodeLocationQuery(presetOrigin).then((p) => p && setPreviewOrigin(p));
-        geocodeLocationQuery(presetDest).then((p) => p && setPreviewDestination(p));
+        if (presetOriginCoords) {
+            setOriginLocation(presetOriginCoords);
+        } else {
+            geocodeLocationQuery(presetOrigin).then((p) => p && setOriginLocation(p));
+        }
+
+        if (presetDestCoords) {
+            setDestinationLocation(presetDestCoords);
+        } else {
+            geocodeLocationQuery(presetDest).then((p) => p && setDestinationLocation(p));
+        }
     };
 
-    // Active origin & destination for persistent map (uses searchResult if available, otherwise preview pins)
+    // Active origin & destination for persistent map (uses searchResult if available, otherwise origin/destination locations)
     const activeOrigin = useMemo(() => {
-        return searchResult?.origin || previewOrigin;
-    }, [searchResult, previewOrigin]);
+        return searchResult?.origin || originLocation;
+    }, [searchResult, originLocation]);
 
     const activeDestination = useMemo(() => {
-        return searchResult?.destination || previewDestination;
-    }, [searchResult, previewDestination]);
+        return searchResult?.destination || destinationLocation;
+    }, [searchResult, destinationLocation]);
 
     // Highway road geometry is only passed after user clicks "Calculate Green Routes"
     const activeGeometry = searchResult?.route_geometry;
@@ -407,198 +496,282 @@ function TravelerContent() {
                     </p>
                 </div>
 
-                {/* Search & Accessibility Filter Card */}
-                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 sm:p-7 space-y-6">
-                    <form onSubmit={handleSearch} className="space-y-6">
-                        {/* Origin & Destination Inputs */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {/* Origin */}
-                            <div className="space-y-1.5">
-                                <label htmlFor="origin-input" className="block text-xs font-semibold text-slate-700 uppercase tracking-wide">
-                                    Origin City or Landmark
-                                </label>
-                                <div className="relative">
-                                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-emerald-600">
-                                        <MapPin className="w-4 h-4" />
+                {/* Integrated 2-Column Planner Interface (5 cols form / 7 cols interactive map) */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                    {/* Left Side: Search Form, Autocomplete Inputs & Filters (5 cols) */}
+                    <div className="lg:col-span-5 flex flex-col">
+                        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 sm:p-6 flex-1 flex flex-col justify-between space-y-6">
+                            <form onSubmit={handleSearch} className="space-y-5 flex-1 flex flex-col justify-between">
+                                <div className="space-y-5">
+                                    {/* Origin & Destination Autocomplete Inputs */}
+                                    <div className="space-y-4">
+                                        <LocationAutocomplete
+                                            value={origin}
+                                            onChange={(val) => {
+                                                setOrigin(val);
+                                                if (searchResult) setSearchResult(null);
+                                            }}
+                                            onSelectLocation={(loc) => {
+                                                setOrigin(loc.name);
+                                                setOriginLocation(loc);
+                                                setSearchResult(null);
+                                                if (mapSelectingMode === 'origin') setMapSelectingMode(null);
+                                            }}
+                                            placeholder="e.g. Mumbai, Bandra West"
+                                            icon={<MapPin className="w-4 h-4 text-emerald-600" />}
+                                            label="Origin City or Landmark"
+                                            isSelectingOnMap={mapSelectingMode === 'origin'}
+                                            onToggleMapSelect={() => {
+                                                setMapSelectingMode((prev) => (prev === 'origin' ? null : 'origin'));
+                                            }}
+                                        />
+
+                                        <LocationAutocomplete
+                                            value={destination}
+                                            onChange={(val) => {
+                                                setDestination(val);
+                                                if (searchResult) setSearchResult(null);
+                                            }}
+                                            onSelectLocation={(loc) => {
+                                                setDestination(loc.name);
+                                                setDestinationLocation(loc);
+                                                setSearchResult(null);
+                                                if (mapSelectingMode === 'destination') setMapSelectingMode(null);
+                                            }}
+                                            placeholder="e.g. Goa, Vagator"
+                                            icon={<MapPin className="w-4 h-4 text-blue-600" />}
+                                            label="Destination City or Beach"
+                                            isSelectingOnMap={mapSelectingMode === 'destination'}
+                                            onToggleMapSelect={() => {
+                                                setMapSelectingMode((prev) => (prev === 'destination' ? null : 'destination'));
+                                            }}
+                                        />
                                     </div>
-                                    <input
-                                        id="origin-input"
-                                        type="text"
-                                        value={origin}
-                                        onChange={(e) => {
-                                            setOrigin(e.target.value);
-                                            if (searchResult) setSearchResult(null);
-                                        }}
-                                        placeholder="e.g. Mumbai, Bandra West"
-                                        className="w-full pl-10 pr-4 py-3 bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm transition-all"
-                                        required
-                                    />
-                                </div>
-                            </div>
 
-                            {/* Destination */}
-                            <div className="space-y-1.5">
-                                <label htmlFor="destination-input" className="block text-xs font-semibold text-slate-700 uppercase tracking-wide">
-                                    Destination City or Beach
-                                </label>
-                                <div className="relative">
-                                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-blue-600">
-                                        <MapPin className="w-4 h-4" />
+                                    {/* Popular Green Route Chips */}
+                                    <div className="space-y-1.5 pt-1">
+                                        <span className="text-xs font-semibold text-slate-600">Popular Green Routes:</span>
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            {PRESET_ROUTES.map((p, idx) => (
+                                                <button
+                                                    key={idx}
+                                                    type="button"
+                                                    onClick={() => applyPreset(p.origin, p.destination, p.originCoords, p.destCoords)}
+                                                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-200 border border-slate-200/60 transition-colors text-slate-700 text-xs cursor-pointer"
+                                                >
+                                                    {p.origin.split(',')[0]} → {p.destination.split(',')[0]}
+                                                </button>
+                                            ))}
+                                        </div>
                                     </div>
-                                    <input
-                                        id="destination-input"
-                                        type="text"
-                                        value={destination}
-                                        onChange={(e) => {
-                                            setDestination(e.target.value);
-                                            if (searchResult) setSearchResult(null);
-                                        }}
-                                        placeholder="e.g. Goa, Vagator"
-                                        className="w-full pl-10 pr-4 py-3 bg-slate-50 hover:bg-slate-100/70 focus:bg-white border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm transition-all"
-                                        required
-                                    />
+
+                                    {/* Accessibility & Inclusion Filters */}
+                                    <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <SlidersHorizontal className="w-4 h-4 text-emerald-600" />
+                                                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                                                    Accessibility &amp; Inclusion Filters
+                                                </span>
+                                            </div>
+                                            <span className="text-[11px] text-slate-400">
+                                                Real-time filtering
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {/* Step-Free Access */}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleFilter('stepFree')}
+                                                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                                                    accessibilityFilters.stepFree
+                                                        ? 'bg-emerald-50 text-emerald-900 border-emerald-300 ring-1 ring-emerald-500/20 shadow-2xs'
+                                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                                                }`}
+                                            >
+                                                <Footprints className={`w-3.5 h-3.5 shrink-0 ${accessibilityFilters.stepFree ? 'text-emerald-600' : 'text-slate-400'}`} />
+                                                <span className="truncate">Step-Free</span>
+                                                {accessibilityFilters.stepFree && (
+                                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-auto shrink-0" />
+                                                )}
+                                            </button>
+
+                                            {/* Wheelchair Accessible */}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleFilter('wheelchair')}
+                                                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                                                    accessibilityFilters.wheelchair
+                                                        ? 'bg-emerald-50 text-emerald-900 border-emerald-300 ring-1 ring-emerald-500/20 shadow-2xs'
+                                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                                                }`}
+                                            >
+                                                <Accessibility className={`w-3.5 h-3.5 shrink-0 ${accessibilityFilters.wheelchair ? 'text-emerald-600' : 'text-slate-400'}`} />
+                                                <span className="truncate">Wheelchair</span>
+                                                {accessibilityFilters.wheelchair && (
+                                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-auto shrink-0" />
+                                                )}
+                                            </button>
+
+                                            {/* Visual Assistance */}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleFilter('visual')}
+                                                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                                                    accessibilityFilters.visual
+                                                        ? 'bg-emerald-50 text-emerald-900 border-emerald-300 ring-1 ring-emerald-500/20 shadow-2xs'
+                                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                                                }`}
+                                            >
+                                                <Eye className={`w-3.5 h-3.5 shrink-0 ${accessibilityFilters.visual ? 'text-emerald-600' : 'text-slate-400'}`} />
+                                                <span className="truncate">Visual Assistance</span>
+                                                {accessibilityFilters.visual && (
+                                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-auto shrink-0" />
+                                                )}
+                                            </button>
+
+                                            {/* Hearing Assistance */}
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleFilter('hearing')}
+                                                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                                                    accessibilityFilters.hearing
+                                                        ? 'bg-emerald-50 text-emerald-900 border-emerald-300 ring-1 ring-emerald-500/20 shadow-2xs'
+                                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                                                }`}
+                                            >
+                                                <Ear className={`w-3.5 h-3.5 shrink-0 ${accessibilityFilters.hearing ? 'text-emerald-600' : 'text-slate-400'}`} />
+                                                <span className="truncate">Hearing Loop</span>
+                                                {accessibilityFilters.hearing && (
+                                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-auto shrink-0" />
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
 
-                        {/* Quick Preset Route Chips */}
-                        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs text-slate-500">
-                            <span className="font-medium text-slate-600">Popular Green Routes:</span>
-                            {PRESET_ROUTES.map((p, idx) => (
-                                <button
-                                    key={idx}
-                                    type="button"
-                                    onClick={() => applyPreset(p.origin, p.destination)}
-                                    className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-200 border border-slate-200/60 transition-colors text-slate-700 cursor-pointer"
-                                >
-                                    {p.origin.split(',')[0]} → {p.destination.split(',')[0]}
-                                </button>
-                            ))}
-                        </div>
+                                {/* Bottom Action Row */}
+                                <div className="pt-3 border-t border-slate-100 space-y-3">
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="flex items-center gap-2 text-xs text-slate-600">
+                                            <label htmlFor="travelers-select" className="font-semibold text-slate-700">
+                                                Travelers:
+                                            </label>
+                                            <select
+                                                id="travelers-select"
+                                                value={travelers}
+                                                onChange={(e) => setTravelers(Number(e.target.value))}
+                                                className="bg-slate-100 border border-slate-200 text-slate-800 rounded-lg px-2.5 py-1 text-xs focus:ring-emerald-500 focus:outline-none"
+                                            >
+                                                <option value={1}>1 Traveler (Solo)</option>
+                                                <option value={2}>2 Travelers (Pair)</option>
+                                                <option value={3}>3 Travelers</option>
+                                                <option value={4}>4 Travelers (Group)</option>
+                                            </select>
+                                        </div>
 
-                        {/* Accessibility Filters Section */}
-                        <div className="space-y-3 pt-2 border-t border-slate-100">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <SlidersHorizontal className="w-4 h-4 text-emerald-600" />
-                                    <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
-                                        Accessibility & Inclusion Filters
+                                        {mapSelectingMode && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setMapSelectingMode(null)}
+                                                className="text-xs text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
+                                            >
+                                                Cancel Map Pick
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    <button
+                                        type="submit"
+                                        disabled={loading}
+                                        className="w-full inline-flex items-center justify-center gap-2.5 px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-semibold rounded-xl shadow-md shadow-emerald-600/20 transition-all cursor-pointer text-sm"
+                                    >
+                                        {loading ? (
+                                            <>
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                <span>Calculating Green Routes...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Search className="w-4 h-4" />
+                                                <span>Calculate Green Routes</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    {/* Right Side: Integrated Interactive Route Map (7 cols) */}
+                    <div className="lg:col-span-7 flex flex-col">
+                        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 sm:p-5 flex-1 flex flex-col space-y-3 min-h-[460px] lg:min-h-[520px]">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1">
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h2 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                                            <span>Interactive Route &amp; Transit Map</span>
+                                        </h2>
+                                        {activeGeometry && activeGeometry.length > 0 && (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                                Highway Route Active
+                                            </span>
+                                        )}
+                                        {mapSelectingMode && (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-600 text-white animate-pulse">
+                                                <Crosshair className="w-3 h-3" />
+                                                Pin Mode ({mapSelectingMode === 'origin' ? 'Origin' : 'Destination'})
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-0.5">
+                                        {mapSelectingMode ? (
+                                            <span className="text-emerald-700 font-semibold">
+                                                📍 Click anywhere on the map to set the {mapSelectingMode === 'origin' ? 'Origin' : 'Destination'} location.
+                                            </span>
+                                        ) : activeOrigin && activeDestination ? (
+                                            <span>
+                                                Route preview between <strong className="text-slate-700">{activeOrigin.name}</strong> and{' '}
+                                                <strong className="text-slate-700">{activeDestination.name}</strong>
+                                            </span>
+                                        ) : activeOrigin ? (
+                                            <span>
+                                                Origin pinned at <strong className="text-slate-700">{activeOrigin.name}</strong>. Enter destination to preview route.
+                                            </span>
+                                        ) : activeDestination ? (
+                                            <span>
+                                                Destination pinned at <strong className="text-slate-700">{activeDestination.name}</strong>. Enter origin to preview route.
+                                            </span>
+                                        ) : (
+                                            <span>Centering on India corridor network. Search places or click &quot;Pick on Map&quot; to place markers.</span>
+                                        )}
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-3 text-xs text-slate-600 self-start sm:self-center shrink-0">
+                                    <span className="flex items-center gap-1.5 font-medium">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-xs" /> Origin
+                                    </span>
+                                    <span className="flex items-center gap-1.5 font-medium">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-xs" /> Destination
                                     </span>
                                 </div>
-                                <span className="text-xs text-slate-400">
-                                    Filter hotel amenities & transit features
-                                </span>
                             </div>
 
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                                {/* Step-Free Access */}
-                                <button
-                                    type="button"
-                                    onClick={() => toggleFilter('stepFree')}
-                                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                                        accessibilityFilters.stepFree
-                                            ? 'bg-emerald-50 text-emerald-900 border-emerald-300 ring-2 ring-emerald-500/20 shadow-2xs'
-                                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100/80 hover:text-slate-900'
-                                    }`}
-                                >
-                                    <Footprints className={`w-4 h-4 shrink-0 ${accessibilityFilters.stepFree ? 'text-emerald-600' : 'text-slate-400'}`} />
-                                    <span className="truncate">Step-Free Access</span>
-                                    {accessibilityFilters.stepFree && (
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-auto shrink-0" />
-                                    )}
-                                </button>
-
-                                {/* Wheelchair Accessible */}
-                                <button
-                                    type="button"
-                                    onClick={() => toggleFilter('wheelchair')}
-                                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                                        accessibilityFilters.wheelchair
-                                            ? 'bg-emerald-50 text-emerald-900 border-emerald-300 ring-2 ring-emerald-500/20 shadow-2xs'
-                                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100/80 hover:text-slate-900'
-                                    }`}
-                                >
-                                    <Accessibility className={`w-4 h-4 shrink-0 ${accessibilityFilters.wheelchair ? 'text-emerald-600' : 'text-slate-400'}`} />
-                                    <span className="truncate">Wheelchair Accessible</span>
-                                    {accessibilityFilters.wheelchair && (
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-auto shrink-0" />
-                                    )}
-                                </button>
-
-                                {/* Visual Assistance */}
-                                <button
-                                    type="button"
-                                    onClick={() => toggleFilter('visual')}
-                                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                                        accessibilityFilters.visual
-                                            ? 'bg-emerald-50 text-emerald-900 border-emerald-300 ring-2 ring-emerald-500/20 shadow-2xs'
-                                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100/80 hover:text-slate-900'
-                                    }`}
-                                >
-                                    <Eye className={`w-4 h-4 shrink-0 ${accessibilityFilters.visual ? 'text-emerald-600' : 'text-slate-400'}`} />
-                                    <span className="truncate">Visual Assistance</span>
-                                    {accessibilityFilters.visual && (
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-auto shrink-0" />
-                                    )}
-                                </button>
-
-                                {/* Hearing Assistance */}
-                                <button
-                                    type="button"
-                                    onClick={() => toggleFilter('hearing')}
-                                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                                        accessibilityFilters.hearing
-                                            ? 'bg-emerald-50 text-emerald-900 border-emerald-300 ring-2 ring-emerald-500/20 shadow-2xs'
-                                            : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100/80 hover:text-slate-900'
-                                    }`}
-                                >
-                                    <Ear className={`w-4 h-4 shrink-0 ${accessibilityFilters.hearing ? 'text-emerald-600' : 'text-slate-400'}`} />
-                                    <span className="truncate">Hearing Assistance</span>
-                                    {accessibilityFilters.hearing && (
-                                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 ml-auto shrink-0" />
-                                    )}
-                                </button>
+                            {/* Map Container */}
+                            <div className="flex-1 w-full min-h-[380px] relative rounded-xl overflow-hidden border border-slate-200 shadow-2xs">
+                                <RouteMap
+                                    origin={activeOrigin}
+                                    destination={activeDestination}
+                                    geometry={activeGeometry}
+                                    selectingMode={mapSelectingMode}
+                                    onPickLocation={handlePickLocationOnMap}
+                                    className="w-full h-full min-h-[380px]"
+                                />
                             </div>
                         </div>
-
-                        {/* Action Row */}
-                        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
-                            <div className="flex items-center gap-2 text-xs text-slate-500">
-                                <label htmlFor="travelers-select" className="font-medium text-slate-700">
-                                    Travelers:
-                                </label>
-                                <select
-                                    id="travelers-select"
-                                    value={travelers}
-                                    onChange={(e) => setTravelers(Number(e.target.value))}
-                                    className="bg-slate-100 border border-slate-200 text-slate-800 rounded-lg px-2.5 py-1 text-xs focus:ring-emerald-500 focus:outline-none"
-                                >
-                                    <option value={1}>1 Traveler (Solo)</option>
-                                    <option value={2}>2 Travelers (Pair)</option>
-                                    <option value={3}>3 Travelers</option>
-                                    <option value={4}>4 Travelers (Group)</option>
-                                </select>
-                            </div>
-
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="w-full sm:w-auto inline-flex items-center justify-center gap-2.5 px-7 py-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-semibold rounded-xl shadow-md shadow-emerald-600/20 transition-all cursor-pointer text-sm"
-                            >
-                                {loading ? (
-                                    <>
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        <span>Calculating Green Routes...</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Search className="w-4 h-4" />
-                                        <span>Calculate Green Routes</span>
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </form>
+                    </div>
                 </div>
 
                 {/* Error Banner */}
@@ -611,64 +784,6 @@ function TravelerContent() {
                         </div>
                     </div>
                 )}
-
-                {/* Persistent Interactive Route Map */}
-                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-5 space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h2 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                                    <span>Interactive Route &amp; Transit Map</span>
-                                </h2>
-                                {activeGeometry && activeGeometry.length > 0 && (
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                                        Highway Geometry Loaded
-                                    </span>
-                                )}
-                                {(isGeocodingOrigin || isGeocodingDest) && (
-                                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
-                                        <Loader2 className="w-3 h-3 animate-spin text-emerald-600" />
-                                        Pinpoint preview...
-                                    </span>
-                                )}
-                            </div>
-                            <p className="text-xs text-slate-500 mt-0.5">
-                                {activeOrigin && activeDestination ? (
-                                    <span>
-                                        Route preview between <strong className="text-slate-700">{activeOrigin.name}</strong> and{' '}
-                                        <strong className="text-slate-700">{activeDestination.name}</strong>
-                                    </span>
-                                ) : activeOrigin ? (
-                                    <span>
-                                        Origin pinned at <strong className="text-slate-700">{activeOrigin.name}</strong>. Enter destination to preview route.
-                                    </span>
-                                ) : activeDestination ? (
-                                    <span>
-                                        Destination pinned at <strong className="text-slate-700">{activeDestination.name}</strong>. Enter origin to preview route.
-                                    </span>
-                                ) : (
-                                    <span>Centering on India corridor network. Type an origin and destination to drop real-time pins.</span>
-                                )}
-                            </p>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-slate-600 self-start sm:self-center">
-                            <span className="flex items-center gap-1.5 font-medium">
-                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-xs" /> Origin
-                            </span>
-                            <span className="flex items-center gap-1.5 font-medium">
-                                <span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-xs" /> Destination
-                            </span>
-                        </div>
-                    </div>
-
-                    <RouteMap
-                        origin={activeOrigin}
-                        destination={activeDestination}
-                        geometry={activeGeometry}
-                        className="w-full h-80 sm:h-96 rounded-xl overflow-hidden border border-slate-200 shadow-2xs"
-                    />
-                </div>
 
                 {/* Loading State Skeleton */}
                 {loading && !searchResult && (
